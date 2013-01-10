@@ -10,6 +10,7 @@ import org.apache.commons.lang.Validate;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.event.CustomTimingsHandler;
 import org.bukkit.event.Event;
 import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.Plugin;
@@ -18,15 +19,21 @@ import org.bukkit.plugin.TimedRegisteredListener;
 import org.bukkit.util.StringUtil;
 
 import com.google.common.collect.ImmutableList;
+import java.io.ByteArrayOutputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.util.logging.Level;
 
 public class TimingsCommand extends BukkitCommand {
-    private static final List<String> TIMINGS_SUBCOMMANDS = ImmutableList.of("merged", "reset", "separate");
+    private static final List<String> TIMINGS_SUBCOMMANDS = ImmutableList.of("merged", "reset", "separate", "paste"); // Spigot
 
     public static long timingStart =  0; // Spigot
     public TimingsCommand(String name) {
         super(name);
         this.description = "Records timings for all plugin events";
-        this.usageMessage = "/timings <reset|merged|separate>";
+        this.usageMessage = "/timings <reset|merged|separate|paste>";
         this.setPermission("bukkit.command.timings");
     }
 
@@ -43,6 +50,7 @@ public class TimingsCommand extends BukkitCommand {
         }
 
         boolean separate = "separate".equals(args[0]);
+        boolean paste = "paste".equals(args[0]);
         if ("reset".equals(args[0])) {
             for (HandlerList handlerList : HandlerList.getHandlerLists()) {
                 for (RegisteredListener listener : handlerList.getRegisteredListeners()) {
@@ -51,9 +59,10 @@ public class TimingsCommand extends BukkitCommand {
                     }
                 }
             }
+            CustomTimingsHandler.reload(); // Spigot
             timingStart = System.nanoTime(); // Spigot
             sender.sendMessage("Timings reset");
-        } else if ("merged".equals(args[0]) || separate) {
+        } else if ("merged".equals(args[0]) || separate || paste) {
 
             long sampleTime = System.nanoTime() - timingStart; // Spigot
             int index = 0;
@@ -62,11 +71,12 @@ public class TimingsCommand extends BukkitCommand {
             timingFolder.mkdirs();
             File timings = new File(timingFolder, "timings.txt");
             File names = null;
+            ByteArrayOutputStream bout = (paste) ? new ByteArrayOutputStream() : null;
             while (timings.exists()) timings = new File(timingFolder, "timings" + (++index) + ".txt");
             PrintStream fileTimings = null;
             PrintStream fileNames = null;
             try {
-                fileTimings = new PrintStream(timings);
+                fileTimings = (paste) ? new PrintStream(bout) : new PrintStream(timings);
                 if (separate) {
                     names = new File(timingFolder, "names" + index + ".txt");
                     fileNames = new PrintStream(names);
@@ -95,8 +105,17 @@ public class TimingsCommand extends BukkitCommand {
                     }
                     fileTimings.println("    Total time " + totalTime + " (" + totalTime / 1000000000 + "s)");
                 }
-                fileTimings.println("Sample time " + sampleTime + " (" + sampleTime / 1000000000 + "s)"); // Spigot
-                sender.sendMessage("Timings written to " + timings.getPath());
+
+                // Spigot start
+                CustomTimingsHandler.printTimings(fileTimings);
+                fileTimings.println("Sample time " + sampleTime + " (" + sampleTime / 1000000000 + "s)");
+                if (paste) {
+                    new PasteThread(sender, bout).start();
+                } else {
+                    sender.sendMessage("Timings written to " + timings.getPath());
+                    sender.sendMessage("Paste contents of file into form at http://aikar.co/timings.php to read results.");
+                }
+                // Spigot end
                 if (separate) sender.sendMessage("Names written to " + names.getPath());
             } catch (IOException e) {
             } finally {
@@ -121,5 +140,41 @@ public class TimingsCommand extends BukkitCommand {
             return StringUtil.copyPartialMatches(args[0], TIMINGS_SUBCOMMANDS, new ArrayList<String>(TIMINGS_SUBCOMMANDS.size()));
         }
         return ImmutableList.of();
+    }
+
+    private static class PasteThread extends Thread {
+
+        private final CommandSender sender;
+        private final ByteArrayOutputStream bout;
+
+        public PasteThread(CommandSender sender, ByteArrayOutputStream bout) {
+            super("Timings paste thread");
+            this.sender = sender;
+            this.bout = bout;
+        }
+
+        @Override
+        public void run() {
+            try {
+                HttpURLConnection con = (HttpURLConnection) new URL("http://paste.ubuntu.com/").openConnection();
+                con.setDoOutput(true);
+                con.setRequestMethod("POST");
+                con.setInstanceFollowRedirects(false);
+
+                OutputStream out = con.getOutputStream();
+                out.write("poster=Spigot&syntax=text&content=".getBytes("UTF-8"));
+                out.write(URLEncoder.encode(bout.toString("UTF-8"), "UTF-8").getBytes("UTF-8"));
+                out.close();
+                con.getInputStream().close();
+
+                String location = con.getHeaderField("Location");
+                String pasteID = location.substring("http://paste.ubuntu.com/".length(), location.length() - 1);
+                sender.sendMessage(ChatColor.GREEN + "Your timings have been pasted to " + location);
+                sender.sendMessage(ChatColor.GREEN + "You can view the results at http://aikar.co/timings.php?url=" + pasteID);
+            } catch (IOException ex) {
+                sender.sendMessage(ChatColor.RED + "Error pasting timings, check your console for more information");
+                Bukkit.getServer().getLogger().log(Level.WARNING, "Could not paste timings", ex);
+            }
+        }
     }
 }
