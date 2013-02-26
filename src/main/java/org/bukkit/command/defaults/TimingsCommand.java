@@ -10,11 +10,12 @@ import org.apache.commons.lang.Validate;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
-import org.bukkit.event.CustomTimingsHandler;
+import org.bukkit.CustomTimingsHandler;
 import org.bukkit.event.Event;
 import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.RegisteredListener;
+import org.bukkit.plugin.SimplePluginManager; // Spigot
 import org.bukkit.plugin.TimedRegisteredListener;
 import org.bukkit.util.StringUtil;
 
@@ -27,31 +28,41 @@ import java.net.URLEncoder;
 import java.util.logging.Level;
 
 public class TimingsCommand extends BukkitCommand {
-    private static final List<String> TIMINGS_SUBCOMMANDS = ImmutableList.of("merged", "reset", "separate", "paste"); // Spigot
+    private static final List<String> TIMINGS_SUBCOMMANDS = ImmutableList.of("merged", "reset", "separate", "paste", "on", "off"); // Spigot
 
     public static long timingStart =  0; // Spigot
     public TimingsCommand(String name) {
         super(name);
         this.description = "Records timings for all plugin events";
-        this.usageMessage = "/timings <reset|merged|separate|paste>";
+        this.usageMessage = "/timings <reset|merged|separate|paste|on|off>"; // Spigot
         this.setPermission("bukkit.command.timings");
     }
 
     @Override
     public boolean execute(CommandSender sender, String currentAlias, String[] args) {
         if (!testPermission(sender)) return true;
-        if (args.length != 1)  {
+        if (args.length < 1)  { // Spigot
             sender.sendMessage(ChatColor.RED + "Usage: " + usageMessage);
             return false;
         }
-        if (!sender.getServer().getPluginManager().useTimings()) {
+        // Spigot start - this is dynamic now
+        /*if (!sender.getServer().getPluginManager().useTimings()) {
             sender.sendMessage("Please enable timings by setting \"settings.plugin-profiling\" to true in bukkit.yml");
             return true;
+        }*/
+        if ("on".equals(args[0])) {
+            ((SimplePluginManager)Bukkit.getServer().getPluginManager()).useTimings(true);
+            sender.sendMessage("Enabled Timings");
+        } else if ("off".equals(args[0])) {
+            ((SimplePluginManager)Bukkit.getServer().getPluginManager()).useTimings(false);
+            sender.sendMessage("Disabled Timings");
         }
+        // Spigot end
 
         boolean separate = "separate".equals(args[0]);
-        boolean paste = "paste".equals(args[0]);
-        if ("reset".equals(args[0])) {
+        boolean paste = "paste".equals(args[0]); // Spigot
+        if ("on".equals(args[0]) || "reset".equals(args[0])) { // Spigot
+            if (!"on".equals(args[0]) && !Bukkit.getServer().getPluginManager().useTimings()) {sender.sendMessage("Please enable timings by typing /timings on"); return true; } // Spigot
             for (HandlerList handlerList : HandlerList.getHandlerLists()) {
                 for (RegisteredListener listener : handlerList.getRegisteredListeners()) {
                     if (listener instanceof TimedRegisteredListener) {
@@ -62,8 +73,8 @@ public class TimingsCommand extends BukkitCommand {
             CustomTimingsHandler.reload(); // Spigot
             timingStart = System.nanoTime(); // Spigot
             sender.sendMessage("Timings reset");
-        } else if ("merged".equals(args[0]) || separate || paste) {
-
+        } else if ("merged".equals(args[0]) || separate || paste) { // Spigot
+            if (!Bukkit.getServer().getPluginManager().useTimings()) {sender.sendMessage("Please enable timings by typing /timings on"); return true; } // Spigot
             long sampleTime = System.nanoTime() - timingStart; // Spigot
             int index = 0;
             int pluginIdx = 0;
@@ -71,7 +82,7 @@ public class TimingsCommand extends BukkitCommand {
             timingFolder.mkdirs();
             File timings = new File(timingFolder, "timings.txt");
             File names = null;
-            ByteArrayOutputStream bout = (paste) ? new ByteArrayOutputStream() : null;
+            ByteArrayOutputStream bout = (paste) ? new ByteArrayOutputStream() : null; // Spigot
             while (timings.exists()) timings = new File(timingFolder, "timings" + (++index) + ".txt");
             PrintStream fileTimings = null;
             PrintStream fileNames = null;
@@ -99,7 +110,7 @@ public class TimingsCommand extends BukkitCommand {
                             totalTime += time;
                             Event event = trl.getEvent();
                             if (count > 0 && event != null) {
-                                fileTimings.println("    " + event.getClass().getSimpleName() + (trl.hasMultiple() ? " (and others)" : "") + " Time: " + time + " Count: " + count + " Avg: " + avg);
+                                fileTimings.println("    " + event.getClass().getSimpleName() + (trl.hasMultiple() ? " (and others)" : "") + " Time: " + time + " Count: " + count + " Avg: " + avg + " Violations: " + trl.violations); // Spigot
                             }
                         }
                     }
@@ -142,6 +153,7 @@ public class TimingsCommand extends BukkitCommand {
         return ImmutableList.of();
     }
 
+    // Spigot start
     private static class PasteThread extends Thread {
 
         private final CommandSender sender;
@@ -177,4 +189,5 @@ public class TimingsCommand extends BukkitCommand {
             }
         }
     }
+    // Spigot end
 }
