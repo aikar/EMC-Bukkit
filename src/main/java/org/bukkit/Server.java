@@ -10,10 +10,7 @@ import java.util.UUID;
 import java.util.logging.Logger;
 
 import org.bukkit.Warning.WarningState;
-import org.bukkit.command.CommandException;
-import org.bukkit.command.CommandSender;
-import org.bukkit.command.ConsoleCommandSender;
-import org.bukkit.command.PluginCommand;
+import org.bukkit.command.*;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.server.ServerListPingEvent;
@@ -39,7 +36,7 @@ import org.bukkit.inventory.meta.ItemMeta;
  * Represents a server implementation
  */
 public interface Server extends PluginMessageRecipient {
-
+    public SimpleCommandMap getCommandMap(); // EMC
     /**
      * Used for all administrative messages, such as an operator using a
      * command.
